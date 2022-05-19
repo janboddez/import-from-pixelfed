@@ -47,7 +47,7 @@ class Import_Handler {
 		}
 
 		$args = array(
-			'limit'           => apply_filters( 'import_from_pixelfed_limit', 15 ),
+			'limit'           => apply_filters( 'import_from_pixelfed_limit', 10 ),
 			'exclude_replies' => true,
 			'only_media'      => true,
 			'media_type'      => 'photo',
@@ -83,15 +83,12 @@ class Import_Handler {
 		$statuses = json_decode( $body );
 
 		if ( empty( $statuses ) ) {
-			error_log( '[Import From Pixelfed] No new statuses found' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			return;
 		}
 
 		if ( ! is_array( $statuses ) ) {
 			return;
 		}
-
-		error_log( '[Import From Pixelfed] Found ' . count( $statuses ) . ' new status(es)' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 
 		if ( ! empty( $this->options['denylist'] ) ) {
 			// Prep our denylist; doing this only once.
@@ -241,63 +238,80 @@ class Import_Handler {
 	 * @return int                    Attachment ID, and 0 on failure.
 	 */
 	private function create_attachment( $attachment_url, $post_id, $description ) {
-		// Get the 'current' WordPress upload dir.
-		$wp_upload_dir = wp_upload_dir();
-
-		// Assuming unique filenames, here.
-		$filename = pathinfo( $attachment_url, PATHINFO_FILENAME ) . '.' . pathinfo( $attachment_url, PATHINFO_EXTENSION );
-
-		if ( is_file( $filename ) ) {
-			return 0; // To do: return attachment ID.
-		}
-
-		// Download attachment.
-		$response = wp_remote_get(
-			esc_url_raw( $attachment_url ),
-			array(
-				'timeout' => 11,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			return 0;
-		}
-
-		if ( empty( $response['body'] ) ) {
-			return 0;
-		}
-
-		global $wp_filesystem;
-
-		if ( empty( $wp_filesystem ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-			WP_Filesystem();
-		}
-
-		// Write image data.
-		if ( ! $wp_filesystem->put_contents( trailingslashit( $wp_upload_dir['path'] ) . $filename, $response['body'], 0644 ) ) {
-			return 0;
-		}
-
-		// Import the image into WordPress' media library.
-		$attachment = array(
-			'guid'           => trailingslashit( $wp_upload_dir['url'] ) . $filename,
-			'post_mime_type' => wp_check_filetype( $filename, null )['type'],
-			'post_title'     => $filename,
-			'post_content'   => '',
-			'post_status'    => 'inherit',
-		);
-
-		$attachment_id = wp_insert_attachment( $attachment, trailingslashit( $wp_upload_dir['path'] ) . $filename, $post_id );
-
-		if ( 0 === $attachment_id ) {
-			// Something went wrong.
-			return 0;
-		}
-
 		if ( ! function_exists( 'wp_crop_image' ) ) {
 			// Load image functions.
 			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
+
+		// Get the "current" WordPress upload dir.
+		$wp_upload_dir = wp_upload_dir();
+
+		// *Assuming* unique filenames, here.
+		$filename  = pathinfo( $attachment_url, PATHINFO_FILENAME ) . '.' . pathinfo( $attachment_url, PATHINFO_EXTENSION );
+		$file_path = trailingslashit( $wp_upload_dir['path'] ) . $filename;
+
+		if ( file_exists( $file_path ) ) {
+			error_log( '[Import From Pixelfed] File already exists: ' . $attachment_url ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+
+			// File already exists, somehow. So either we've got a different
+			// file with the exact same name or we're trying to re-import the
+			// exact same file. Assuming the latter, also because Pixelfed's
+			// random file names aren't something we would easily come up with.
+
+			/* @todo: Create our own filenames based on complete URL hashes? */
+			$file_url      = str_replace( $wp_upload_dir['basedir'], $wp_upload_dir['baseurl'], $file_path );
+			$attachment_id = attachment_url_to_postid( $file_url ); // Attachment ID or 0.
+		} else {
+			// Download attachment.
+			$response = wp_remote_get(
+				esc_url_raw( $attachment_url ),
+				array(
+					'timeout' => 11,
+				)
+			);
+
+			if ( is_wp_error( $response ) ) {
+				return 0;
+			}
+
+			if ( empty( $response['body'] ) ) {
+				return 0;
+			}
+
+			global $wp_filesystem;
+
+			if ( empty( $wp_filesystem ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+				WP_Filesystem();
+			}
+
+			// Write image data.
+			if ( ! $wp_filesystem->put_contents( $file_path, $response['body'], 0644 ) ) {
+				return 0;
+			}
+
+			if ( ! file_is_valid_image( $file_path ) || ! file_is_displayable_image( $file_path ) ) {
+				unset( $file_path );
+
+				error_log( '[Import From Pixelfed] Invalid image file: ' . $attachment_url ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				return 0;
+			}
+
+			// Import the image into WordPress' media library.
+			$attachment = array(
+				'guid'           => $file_path,
+				'post_mime_type' => wp_check_filetype( $filename, null )['type'],
+				'post_title'     => $filename,
+				'post_content'   => '',
+				'post_status'    => 'inherit',
+			);
+
+			$attachment_id = wp_insert_attachment( $attachment, trailingslashit( $wp_upload_dir['path'] ) . $filename, $post_id );
+		}
+
+		if ( empty( $attachment_id ) ) {
+			// Something went wrong.
+			return 0;
 		}
 
 		// Generate metadata. Generates thumbnails, too.

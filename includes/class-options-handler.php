@@ -527,7 +527,7 @@ class Options_Handler {
 		}
 
 		if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			// To do: replace with actual error message.
+			/* @todo: Replace with actual error message. */
 			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
 			return false;
 		}
@@ -569,7 +569,7 @@ class Options_Handler {
 			return false;
 		}
 
-		// Request an access token.
+		// Request an access token refresh.
 		$response = wp_remote_post(
 			esc_url_raw( $this->options['pixelfed_host'] ) . '/oauth/token',
 			array(
@@ -607,6 +607,7 @@ class Options_Handler {
 
 			return true;
 		} else {
+			/* @todo: Provide proper error message. */
 			error_log( '[Import From Pixelfed] ' . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
 		}
 
