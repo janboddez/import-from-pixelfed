@@ -23,9 +23,6 @@ class Options_Handler {
 		'post_type'              => 'post',
 		'post_status'            => 'publish',
 		'post_format'            => '',
-		'include_replies'        => false,
-		'include_reblogs'        => false,
-		'tags'                   => '',
 		'denylist'               => '',
 	);
 
@@ -176,17 +173,6 @@ class Options_Handler {
 			$this->options['post_status'] = wp_unslash( $settings['post_status'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		}
 
-		// These can be either `"1"` or `true`.
-		$this->options['include_reblogs'] = ! empty( $settings['include_reblogs'] );
-		$this->options['include_replies'] = ! empty( $settings['include_replies'] );
-
-		// Sanitizing text(area) fields is tricky, especially when data needs to
-		// be kept intact. Anyhow, let's see how this works out.
-		if ( isset( $settings['tags'] ) ) {
-			$tags                  = preg_replace( '~,\s+~', ',', sanitize_text_field( $settings['tags'] ) );
-			$this->options['tags'] = str_replace( '#', '', $tags );
-		}
-
 		if ( isset( $settings['denylist'] ) ) {
 			// Normalize line endings.
 			$denylist                  = preg_replace( '~\R~u', "\r\n", $settings['denylist'] );
@@ -251,23 +237,6 @@ class Options_Handler {
 						</ul>
 						<p class="description"><?php esc_html_e( 'Post status for newly imported statuses.', 'import-from-pixelfed' ); ?></p></td>
 					</tr>
-					<!--
-					<tr valign="top">
-						<th scope="row"><?php esc_html_e( 'Boosts', 'import-from-pixelfed' ); ?></th>
-						<td><label><input type="checkbox" id="import_from_pixelfed_settings[include_reblogs]" name="import_from_pixelfed_settings[include_reblogs]" value="1" <?php checked( ! empty( $this->options['include_reblogs'] ) ); ?>/> <?php esc_html_e( 'Include boosts?' ); ?></label>
-						<p class="description"><?php esc_html_e( 'Import boosts (&ldquo;reblogs&rdquo;), too?', 'import-from-pixelfed' ); ?></p></td>
-					</tr>
-					<tr valign="top">
-						<th scope="row"><?php esc_html_e( 'Replies', 'import-from-pixelfed' ); ?></th>
-						<td><label><input type="checkbox" id="import_from_pixelfed_settings[include_replies]" name="import_from_pixelfed_settings[include_replies]" value="1" <?php checked( ! empty( $this->options['include_replies'] ) ); ?>/> <?php esc_html_e( 'Include replies?' ); ?></label>
-						<p class="description"><?php esc_html_e( 'Import replies, too?', 'import-from-pixelfed' ); ?></p></td>
-					</tr>
-					<tr valign="top">
-						<th scope="row"><label for="import_from_pixelfed_settings[tags]"><?php esc_html_e( 'Tags', 'import-from-pixelfed' ); ?></label></th>
-						<td><input type="text" id="import_from_pixelfed_settings[tags]" name="import_from_pixelfed_settings[tags]" style="min-width: 40%;" value="<?php echo esc_attr( $this->options['tags'] ); ?>" />
-						<p class="description"><?php _e( 'Import only statuses with <strong>any</strong> of these (comma-separated) tags. (Leave blank to import all statuses.)', 'import-from-pixelfed' ); // phpcs:ignore WordPress.Security.EscapeOutput.UnsafePrintingFunction ?></p></td>
-					</tr>
-					//-->
 					<tr valign="top">
 						<th scope="row"><label for="import_from_pixelfed_settings[denylist]"><?php esc_html_e( 'Blocklist', 'import-from-pixelfed' ); ?></label></th>
 						<td><textarea id="import_from_pixelfed_settings[denylist]" name="import_from_pixelfed_settings[denylist]" style="min-width: 40%;" rows="5"><?php echo esc_html( $this->options['denylist'] ); ?></textarea>
@@ -289,67 +258,8 @@ class Options_Handler {
 				}
 
 				if ( ! empty( $this->options['pixelfed_client_id'] ) && ! empty( $this->options['pixelfed_client_secret'] ) ) {
-					// An app was successfully registered.
-					if ( ! empty( $_GET['code'] ) && empty( $this->options['pixelfed_access_token'] ) ) {
-						// Access token request.
-						if ( $this->request_access_token( wp_unslash( $_GET['code'] ) ) ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-							?>
-							<div class="notice notice-success is-dismissible">
-								<p><?php esc_html_e( 'Access granted!', 'import-from-pixelfed' ); ?></p>
-							</div>
-							<?php
-						}
-					}
-
-					if ( isset( $_GET['action'] ) && 'revoke' === $_GET['action'] && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
-						// Revoke access. Forget access token regardless of the
-						// outcome.
-						$this->revoke_access();
-					}
-
-					if ( empty( $this->options['pixelfed_access_token'] ) ) {
-						$url = $this->options['pixelfed_host'] . '/oauth/authorize?' . http_build_query(
-							array(
-								'response_type' => 'code',
-								'client_id'     => $this->options['pixelfed_client_id'],
-								'client_secret' => $this->options['pixelfed_client_secret'],
-								'redirect_uri'  => add_query_arg(
-									array(
-										'page' => 'import-from-pixelfed', // Redirect here after authorization.
-									),
-									admin_url( 'options-general.php' )
-								),
-								'scope'         => 'read',
-							)
-						);
-						?>
-						<p><?php esc_html_e( 'Authorize WordPress to read from your Pixelfed timeline. Nothing will ever be posted there.', 'import-from-pixelfed' ); ?></p>
-						<p style="margin-bottom: 2rem;"><?php printf( '<a href="%1$s" class="button">%2$s</a>', esc_url( $url ), esc_html__( 'Authorize Access', 'import-from-pixelfed' ) ); ?>
-						<?php
-					} else {
-						// An access token exists.
-						?>
-						<p><?php esc_html_e( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline.', 'import-from-pixelfed' ); ?></p>
-						<p style="margin-bottom: 2rem;">
-							<?php
-							printf(
-								'<a href="%1$s" class="button">%2$s</a>',
-								esc_url(
-									add_query_arg(
-										array(
-											'page'     => 'import-from-pixelfed',
-											'action'   => 'revoke',
-											'_wpnonce' => wp_create_nonce( 'import-from-pixelfed-reset' ),
-										),
-										admin_url( 'options-general.php' )
-									)
-								),
-								esc_html__( 'Revoke Access', 'import-from-pixelfed' )
-							);
-							?>
-						</p>
-						<?php
-					}
+					// App registered OK.
+					$this->handle_access_token();
 				} else {
 					// Still couldn't register our app.
 					?>
@@ -456,6 +366,72 @@ class Options_Handler {
 			update_option( 'import_from_pixelfed_settings', $this->options );
 		} else {
 			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+		}
+	}
+
+	/**
+	 * Display access token buttons (request, refresh, or revoke).
+	 */
+	private function handle_access_token() {
+		if ( ! empty( $_GET['code'] ) && empty( $this->options['pixelfed_access_token'] ) ) {
+			// Access token request.
+			if ( $this->request_access_token( wp_unslash( $_GET['code'] ) ) ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+				?>
+				<div class="notice notice-success is-dismissible">
+					<p><?php esc_html_e( 'Access granted!', 'import-from-pixelfed' ); ?></p>
+				</div>
+				<?php
+			}
+		}
+
+		if ( isset( $_GET['action'] ) && 'revoke' === $_GET['action'] && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
+			// Revoke access. Forget access token regardless of the
+			// outcome.
+			$this->revoke_access();
+		}
+
+		if ( empty( $this->options['pixelfed_access_token'] ) ) {
+			$url = $this->options['pixelfed_host'] . '/oauth/authorize?' . http_build_query(
+				array(
+					'response_type' => 'code',
+					'client_id'     => $this->options['pixelfed_client_id'],
+					'client_secret' => $this->options['pixelfed_client_secret'],
+					'redirect_uri'  => add_query_arg(
+						array(
+							'page' => 'import-from-pixelfed', // Redirect here after authorization.
+						),
+						admin_url( 'options-general.php' )
+					),
+					'scope'         => 'read',
+				)
+			);
+			?>
+			<p><?php esc_html_e( 'Authorize WordPress to read from your Pixelfed timeline. Nothing will ever be posted there.', 'import-from-pixelfed' ); ?></p>
+			<p style="margin-bottom: 2rem;"><?php printf( '<a href="%1$s" class="button">%2$s</a>', esc_url( $url ), esc_html__( 'Authorize Access', 'import-from-pixelfed' ) ); ?>
+			<?php
+		} else {
+			// An access token exists. Show revoke button.
+			?>
+			<p><?php esc_html_e( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline.', 'import-from-pixelfed' ); ?></p>
+			<p style="margin-bottom: 2rem;">
+				<?php
+				printf(
+					'<a href="%1$s" class="button">%2$s</a>',
+					esc_url(
+						add_query_arg(
+							array(
+								'page'     => 'import-from-pixelfed',
+								'action'   => 'revoke',
+								'_wpnonce' => wp_create_nonce( 'import-from-pixelfed-reset' ),
+							),
+							admin_url( 'options-general.php' )
+						)
+					),
+					esc_html__( 'Revoke Access', 'import-from-pixelfed' )
+				);
+				?>
+			</p>
+			<?php
 		}
 	}
 
@@ -570,6 +546,7 @@ class Options_Handler {
 	 */
 	private function revoke_access() {
 		if ( ! current_user_can( 'manage_options' ) ) {
+			// Insufficient rights.
 			return false;
 		}
 
@@ -604,23 +581,21 @@ class Options_Handler {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			error_log( '[Import From Pixelfed] Revoking access failed. ' . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
+			error_log( '[Import From Pixelfed] ' . __( 'Revoking access failed.', 'share-on-pixelfed' ) . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
 			return false;
 		}
 
-		if ( 200 === wp_remote_retrieve_response_code( $response ) ) {
-			// Success. Delete access token.
-			$this->options['pixelfed_access_token'] = '';
-			error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			update_option( 'share_on_pixelfed_settings', $this->options );
-
-			return true;
-		} else {
+		if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
 			error_log( '[Import From Pixelfed] ' . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
+			return false;
 		}
 
-		// Something went wrong.
-		return false;
+		// Success. Delete access token.
+		error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		$this->options['pixelfed_access_token'] = '';
+
+		update_option( 'share_on_pixelfed_settings', $this->options );
+		return true;
 	}
 
 	/**

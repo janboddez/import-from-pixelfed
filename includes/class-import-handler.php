@@ -47,30 +47,21 @@ class Import_Handler {
 		}
 
 		$args = array(
-			'exclude_reblogs' => empty( $this->options['include_reblogs'] ),
-			'exclude_replies' => empty( $this->options['include_replies'] ),
 			'limit'           => apply_filters( 'import_from_pixelfed_limit', 15 ),
+			'exclude_replies' => true,
+			'only_media'      => true,
+			'media_type'      => 'photo',
 		);
 
 		$most_recent_toot = self::get_latest_status();
 
 		if ( $most_recent_toot ) {
-			error_log( '[Import From Pixelfed] Found the following status to be the most recent one: ' . $most_recent_toot ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-
 			// So, it seems `since_id` is not _reall_ supported, but `min_id` is. We
 			// will "manually" check for duplicates regardless.
 			$args['min_id'] = $most_recent_toot;
 		}
 
-		$query_string = http_build_query( $args );
-
-		if ( $this->options['tags'] ) {
-			$tags = explode( ',', (string) $this->options['tags'] );
-
-			foreach ( $tags as $tag ) {
-				$query_string .= '&tagged[]=' . rawurlencode( $tag );
-			}
-		}
+		$query_string = http_build_query( apply_filters( 'import_from_pixelfed_api_args', $args ) );
 
 		$response = wp_remote_get(
 			esc_url_raw( $this->options['pixelfed_host'] . '/api/v1/accounts/' . $this->get_account_id() . '/statuses?' . $query_string ),
@@ -130,6 +121,7 @@ class Import_Handler {
 
 			if ( ! empty( $denylist ) && isset( $status->content ) && str_ireplace( $denylist, '', $status->content ) !== $status->content ) {
 				// Denylisted.
+				error_log( '[Import From Pixelfed] Skipping status with ID ' . $status->id . ': denylisted' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 				continue;
 			}
 
@@ -145,19 +137,6 @@ class Import_Handler {
 					)
 				)
 			);
-
-			if ( isset( $status->reblog->url ) && isset( $status->reblog->account->username ) ) {
-				// Add a little bit of context to boosts.
-				if ( ! empty( $content ) ) {
-					$content  = '<blockquote>' . $content . PHP_EOL . PHP_EOL;
-					$content .= '&mdash;<a href="' . esc_url( $status->reblog->url ) . '" rel="nofollow">' . esc_html( $status->reblog->account->username ) . '</a>';
-					$content .= '</blockquote>';
-				}
-
-				// Could eventually do something similar for replies. Would be
-				// somehat more difficult, though. For now, there's the filters
-				// below.
-			}
 
 			if ( empty( $content ) && empty( $status->media_attachments ) ) {
 				// Skip.
