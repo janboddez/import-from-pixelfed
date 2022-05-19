@@ -248,8 +248,6 @@ class Options_Handler {
 
 			<h2><?php esc_html_e( 'Authorize Access', 'import-from-pixelfed' ); ?></h2>
 			<?php
-			// To do: move all of this to a function of its own, simplify.
-
 			if ( ! empty( $this->options['pixelfed_host'] ) ) {
 				// A valid instance URL was set.
 				if ( empty( $this->options['pixelfed_client_id'] ) || empty( $this->options['pixelfed_client_secret'] ) ) {
@@ -482,9 +480,87 @@ class Options_Handler {
 	}
 
 	/**
+	 * Revokes WordPress' access to Pixelfed.
+	 *
+	 * @return boolean If access was revoked.
+	 */
+	private function revoke_access() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			// Insufficient rights.
+			return false;
+		}
+
+		if ( empty( $this->options['pixelfed_host'] ) ) {
+			return false;
+		}
+
+		if ( empty( $this->options['pixelfed_access_token'] ) ) {
+			return false;
+		}
+
+		if ( empty( $this->options['pixelfed_client_id'] ) ) {
+			return false;
+		}
+
+		if ( empty( $this->options['pixelfed_client_secret'] ) ) {
+			return false;
+		}
+
+		// Revoke access. This is where Pixelfed differs from Mastodon/OAuth 2.
+		$response = wp_remote_post(
+			// phpcs:ignore Squiz.PHP.CommentedOutCode.Found,Squiz.Commenting.InlineComment.InvalidEndChar
+			// esc_url_raw( $this->options['pixelfed_host'] ) . '/oauth/revoke',
+			esc_url_raw( $this->options['pixelfed_host'] . '/oauth/tokens/' . $this->options['pixelfed_access_token'] ),
+			array(
+				'method'  => 'DELETE',
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $this->options['pixelfed_access_token'],
+				),
+				'timeout' => 11,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			/* translators: %s: error message */
+			error_log( '[Import From Pixelfed] ' . sprintf( __( 'Something went wrong contacting the instance: %s', 'share-on-pixelfed' ), $response->get_error_message() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			return false;
+		}
+
+		if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			// To do: replace with actual error message.
+			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
+			return false;
+		}
+
+		// Success. Delete access token.
+		error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		$this->options['pixelfed_access_token'] = '';
+
+		update_option( 'share_on_pixelfed_settings', $this->options );
+		return true;
+	}
+
+	/**
+	 * Checks whether the access token is up for refresh.
+	 */
+	public function cron_refresh_token() {
+		if ( empty( $this->options['pixelfed_token_expiry'] ) ) {
+			// No expiry date set.
+			return;
+		}
+
+		if ( $this->options['pixelfed_token_expiry'] > time() + 2 * DAY_IN_SECONDS ) {
+			// Token doesn't expire till two days from now.
+			return;
+		}
+
+		$this->refresh_access_token();
+	}
+
+	/**
 	 * Requests a token refresh.
 	 *
-	 * @since 0.1.0
+	 * Separate method so it _could_ be run manually.
 	 */
 	private function refresh_access_token() {
 		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
@@ -538,109 +614,16 @@ class Options_Handler {
 	}
 
 	/**
-	 * Revokes WordPress' access to Pixelfed.
-	 *
-	 * @since 0.1.0
-	 *
-	 * @return boolean If access was revoked.
-	 */
-	private function revoke_access() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			// Insufficient rights.
-			return false;
-		}
-
-		if ( empty( $this->options['pixelfed_host'] ) ) {
-			return false;
-		}
-
-		if ( empty( $this->options['pixelfed_access_token'] ) ) {
-			return false;
-		}
-
-		if ( empty( $this->options['pixelfed_client_id'] ) ) {
-			return false;
-		}
-
-		if ( empty( $this->options['pixelfed_client_secret'] ) ) {
-			return false;
-		}
-
-		// Revoke access. This is where Pixelfed differs from Mastodon/OAuth 2.
-		$response = wp_remote_post(
-			// phpcs:ignore Squiz.PHP.CommentedOutCode.Found,Squiz.Commenting.InlineComment.InvalidEndChar
-			// esc_url_raw( $this->options['pixelfed_host'] ) . '/oauth/revoke',
-			esc_url_raw( $this->options['pixelfed_host'] . '/oauth/tokens/' . $this->options['pixelfed_access_token'] ),
-			array(
-				'method'  => 'DELETE',
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $this->options['pixelfed_access_token'],
-				),
-				'timeout' => 11,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			error_log( '[Import From Pixelfed] ' . __( 'Revoking access failed.', 'share-on-pixelfed' ) . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
-			return false;
-		}
-
-		if ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			error_log( '[Import From Pixelfed] ' . print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
-			return false;
-		}
-
-		// Success. Delete access token.
-		error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		$this->options['pixelfed_access_token'] = '';
-
-		update_option( 'share_on_pixelfed_settings', $this->options );
-		return true;
-	}
-
-	/**
-	 * Requests an access token refresh before the current token expires.
-	 *
-	 * Normally runs once a day.
-	 *
-	 * @since 0.3.0
-	 */
-	public function cron_refresh_token() {
-		if ( empty( $this->options['pixelfed_token_expiry'] ) ) {
-			// No expiry date set.
-			return;
-		}
-
-		if ( $this->options['pixelfed_token_expiry'] > time() + 2 * DAY_IN_SECONDS ) {
-			// Token doesn't expire till two days from now.
-			return;
-		}
-
-		$this->refresh_access_token();
-	}
-
-	/**
-	 * Resets all plugin options.
-	 */
-	private function reset_options() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return false;
-		}
-
-		$this->options = self::DEFAULT_SETTINGS;
-
-		update_option( 'import_from_pixelfed_settings', $this->options );
-	}
-
-	/**
 	 * `admin-post.php` callback.
 	 */
 	public function admin_post() {
-		if ( isset( $_GET['reset'] ) && 'true' === $_GET['reset'] && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
+		if ( isset( $_GET['reset'] ) && 'true' === $_GET['reset']
+		  && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
 			// Reset all of this plugin's settings.
 			$this->reset_options();
 		}
 
+		// Redirect _always_. This why we don't return early.
 		wp_redirect( // phpcs:ignore WordPress.Security.SafeRedirect
 			esc_url_raw(
 				add_query_arg(
@@ -655,40 +638,15 @@ class Options_Handler {
 	}
 
 	/**
-	 * Verifies Import From Pixelfed's token status.
-	 *
-	 * Normally runs once a day.
+	 * Resets all plugin options.
 	 */
-	public function cron_verify_token() {
-		if ( empty( $this->options['pixelfed_host'] ) ) {
+	private function reset_options() {
+		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 
-		if ( empty( $this->options['pixelfed_access_token'] ) ) {
-			return;
-		}
-
-		// Verify the current access token.
-		$response = wp_remote_get(
-			esc_url_raw( $this->options['pixelfed_host'] . '/api/v1/accounts/verify_credentials' ),
-			array(
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $this->options['pixelfed_access_token'],
-				),
-				'timeout' => 11,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
-			return;
-		}
-
-		if ( in_array( wp_remote_retrieve_response_code( $response ), array( 401, 403 ), true ) ) {
-			// The current access token has somehow become invalid. Forget it.
-			$this->options['pixelfed_access_token'] = '';
-			update_option( 'import_from_pixelfed_settings', $this->options );
-		}
+		$this->options = self::DEFAULT_SETTINGS;
+		update_option( 'import_from_pixelfed_settings', $this->options );
 	}
 
 	/**
