@@ -174,6 +174,11 @@ class Import_Handler {
 				isset( $this->options['post_type'] ) ? $this->options['post_type'] : 'post',
 				$status
 			);
+			$post_category= apply_filters(
+				'import_from_pixelfed_post_category',
+				isset( $this->options['post_category'] ) ? $this->options['post_category'] : '1',
+				$status
+			);
 
 			$args = array(
 				'post_title'    => $title,
@@ -184,6 +189,7 @@ class Import_Handler {
 					$status
 				),
 				'post_type'     => $post_type,
+				'post_category' => array($post_category),
 				'post_date_gmt' => ! empty( $status->created_at ) ? date( 'Y-m-d H:i:s', strtotime( $status->created_at ) ) : '', // phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date
 				'meta_input'    => array(),
 			);
