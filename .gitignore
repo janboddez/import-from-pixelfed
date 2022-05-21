@@ -37,3 +37,7 @@ Thumbs.db
 vendor/
 svn/
 *.cache
+assets/.DS_Store
+tests/.DS_Store
+.gitignore
+.gitignore
