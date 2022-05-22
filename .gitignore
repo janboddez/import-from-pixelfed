@@ -36,4 +36,5 @@ Thumbs.db
 
 vendor/
 svn/
+.DS_Store
 *.cache

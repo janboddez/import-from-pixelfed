@@ -23,8 +23,9 @@ class Options_Handler {
 		'pixelfed_token_expiry'  => '',
 		'post_type'              => 'post',
 		'post_status'            => 'publish',
-		'post_format'            => '',
 		'denylist'               => '',
+		'post_category'          => 0,
+		'post_author'            => 0,
 	);
 
 	/**
@@ -138,7 +139,7 @@ class Options_Handler {
 
 						// (Try to) revoke access. Forget token regardless of
 						// the outcome.
-						$this->revoke_access();
+						//$this->revoke_access();
 
 						// Then, save the new URL.
 						$this->options['pixelfed_host'] = untrailingslashit( $pixelfed_host );
@@ -166,13 +167,25 @@ class Options_Handler {
 				self::DEFAULT_POST_TYPES
 			);
 
-			if ( in_array( wp_unslash( $settings['post_type'] ), $supported_post_types, true ) ) {
-				$this->options['post_type'] = wp_unslash( $settings['post_type'] );
+			if ( in_array( $settings['post_type'], $supported_post_types, true ) ) {
+				$this->options['post_type'] = $settings['post_type'];
 			}
 		}
 
-		if ( isset( $settings['post_status'] ) && in_array( wp_unslash( $settings['post_status'] ), self::POST_STATUSES, true ) ) {
-			$this->options['post_status'] = wp_unslash( $settings['post_status'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( isset( $settings['post_status'] ) && in_array( $settings['post_status'], self::POST_STATUSES, true ) ) {
+			$this->options['post_status'] = $settings['post_status'];
+		}
+
+		if ( isset( $settings['post_category'] ) && term_exists( (int) $settings['post_category'], 'category' ) ) {
+			$this->options['post_category'] = (int) $settings['post_category'];
+		}
+
+		if ( isset( $settings['post_author'] ) ) {
+			$user = get_userdata( (int) $settings['post_author'] );
+
+			if ( ! empty( $user->ID ) ) {
+				$this->options['post_author'] = (int) $settings['post_author'];
+			}
 		}
 
 		if ( isset( $settings['denylist'] ) ) {
@@ -207,10 +220,11 @@ class Options_Handler {
 				?>
 				<table class="form-table">
 					<tr valign="top">
-						<th scope="row"><label for="import_from_pixelfed_settings[pixelfed_host]"><?php esc_html_e( 'Instance', 'import-from-pixelfed' ); ?></label></th>
+						<th scope="row"><label for="import_from_pixelfed_settings[pixelfed_host]"><?php esc_html_e( 'Pixelfed Instance', 'import-from-pixelfed' ); ?></label></th>
 						<td><input type="url" id="import_from_pixelfed_settings[pixelfed_host]" name="import_from_pixelfed_settings[pixelfed_host]" style="min-width: 40%;" value="<?php echo esc_attr( $this->options['pixelfed_host'] ); ?>" />
 						<p class="description"><?php esc_html_e( 'Your Pixelfed instance&rsquo;s URL.', 'import-from-pixelfed' ); ?></p></td>
 					</tr>
+					<!--
 					<tr valign="top">
 						<th scope="row"><?php esc_html_e( 'Post Type', 'import-from-pixelfed' ); ?></th>
 						<td><ul style="list-style: none; margin-top: 4px;">
@@ -225,6 +239,7 @@ class Options_Handler {
 						</ul>
 						<p class="description"><?php esc_html_e( 'Post type for newly imported statuses.', 'import-from-pixelfed' ); ?></p></td>
 					</tr>
+					//-->
 					<tr valign="top">
 						<th scope="row"><?php esc_html_e( 'Post Status', 'import-from-pixelfed' ); ?></th>
 						<td><ul style="list-style: none; margin-top: 4px;">
@@ -238,6 +253,40 @@ class Options_Handler {
 							?>
 						</ul>
 						<p class="description"><?php esc_html_e( 'Post status for newly imported statuses.', 'import-from-pixelfed' ); ?></p></td>
+					</tr>
+					<tr valign="top">
+						<th scope="row"><label for="import_from_pixelfed_settings[post_author]"><?php esc_html_e( 'Post Author', 'import-from-pixelfed' ); ?></label></th>
+						<td>
+							<?php
+							$user = get_userdata( $this->options['post_author'] );
+
+							wp_dropdown_users(
+								array(
+									'show_option_none' => esc_attr__( 'Select author', 'import-from-pixelfed' ),
+									'id'               => 'import_from_pixelfed_settings[post_author]',
+									'name'             => 'import_from_pixelfed_settings[post_author]',
+									'selected'         => ! empty( $user->ID ) ? $user->ID : -1, // phpcs:ignore WordPress.CodeAnalysis.AssignmentInCondition.FoundInTernaryCondition,Squiz.PHP.DisallowMultipleAssignments.Found
+								)
+							);
+							?>
+							<p class="description"><?php esc_html_e( 'The author for newly imported statuses.', 'import-from-pixelfed' ); ?></p>
+						</td>
+					</tr>
+					<tr valign="top">
+						<th scope="row"><label for="import_from_pixelfed_settings[post_category]"><?php esc_html_e( 'Default Category', 'import-from-pixelfed' ); ?></label></th>
+						<td>
+							<?php
+							wp_dropdown_categories(
+								array(
+									'show_option_none' => esc_attr__( 'Select category', 'import-from-pixelfed' ),
+									'id'               => 'import_from_pixelfed_settings[post_category]',
+									'name'             => 'import_from_pixelfed_settings[post_category]',
+									'selected'         => term_exists( $this->options['post_category'], 'category' ) ? $this->options['post_category'] : -1,
+								)
+							);
+							?>
+							<p class="description"><?php esc_html_e( 'Default category for newly imported statuses.', 'import-from-pixelfed' ); ?></p>
+						</td>
 					</tr>
 					<tr valign="top">
 						<th scope="row"><label for="import_from_pixelfed_settings[denylist]"><?php esc_html_e( 'Blocklist', 'import-from-pixelfed' ); ?></label></th>
@@ -385,11 +434,13 @@ class Options_Handler {
 			}
 		}
 
+		/*
 		if ( isset( $_GET['action'] ) && 'revoke' === $_GET['action'] && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
 			// Revoke access. Forget access token regardless of the
 			// outcome.
 			$this->revoke_access();
 		}
+		*/
 
 		if ( empty( $this->options['pixelfed_access_token'] ) ) {
 			$url = $this->options['pixelfed_host'] . '/oauth/authorize?' . http_build_query(
@@ -411,10 +462,10 @@ class Options_Handler {
 			<p style="margin-bottom: 2rem;"><?php printf( '<a href="%1$s" class="button">%2$s</a>', esc_url( $url ), esc_html__( 'Authorize Access', 'import-from-pixelfed' ) ); ?>
 			<?php
 		} else {
-			// An access token exists. Show revoke button.
-			?>
-			<p><?php esc_html_e( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline.', 'import-from-pixelfed' ); ?></p>
-			<p style="margin-bottom: 2rem;">
+			// An access token exists. Show revoke button.			?>
+			<p style="margin-bottom: 2rem;"><?php esc_html_e( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline.', 'import-from-pixelfed' ); ?></p>
+			<!--
+			<p>
 				<?php
 				printf(
 					'<a href="%1$s" class="button">%2$s</a>',
@@ -432,6 +483,7 @@ class Options_Handler {
 				);
 				?>
 			</p>
+			//-->
 			<?php
 		}
 	}
@@ -492,6 +544,7 @@ class Options_Handler {
 	/**
 	 * Revokes WordPress' access to Pixelfed.
 	 */
+	/*
 	private function revoke_access() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			// Insufficient rights.
@@ -530,7 +583,7 @@ class Options_Handler {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			/* translators: %s: error message */
+			/* translators: %s: error message *//*
 			error_log( '[Import From Pixelfed] ' . sprintf( __( 'Something went wrong contacting the instance: %s', 'share-on-pixelfed' ), $response->get_error_message() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			return;
 		}
@@ -546,6 +599,7 @@ class Options_Handler {
 		$this->options['pixelfed_access_token'] = '';
 		update_option( 'share_on_pixelfed_settings', $this->options );
 	}
+	*/
 
 	/**
 	 * Checks whether the current access token is valid, still.

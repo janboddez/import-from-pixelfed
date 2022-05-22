@@ -140,29 +140,38 @@ class Import_Handler {
 				continue;
 			}
 
-			$title = wp_trim_words( $content, 10 );
-
-			$content = apply_filters( 'import_from_pixelfed_post_content', $content, $status );
+			$title   = wp_trim_words( $content, 10 );
 			$title   = apply_filters( 'import_from_pixelfed_post_title', $title, $status );
+			$content = apply_filters( 'import_from_pixelfed_post_content', $content, $status );
 
-			$post_type = apply_filters(
-				'import_from_pixelfed_post_type',
-				isset( $this->options['post_type'] ) ? $this->options['post_type'] : 'post',
+			/* @todo: Set default title when title and content are both empty. */
+
+			$post_status = apply_filters(
+				'import_from_pixelfed_post_status',
+				isset( $this->options['post_status'] ) ? $this->options['post_status'] : 'publish',
 				$status
 			);
 
 			$args = array(
 				'post_title'    => $title,
 				'post_content'  => $content,
-				'post_status'   => apply_filters(
-					'import_from_pixelfed_post_status',
-					isset( $this->options['post_status'] ) ? $this->options['post_status'] : 'publish',
-					$status
-				),
-				'post_type'     => $post_type,
+				'post_status'   => $post_status,
+				'post_type'     => apply_filters( 'import_from_pixelfed_post_type', 'post', $status ),
 				'post_date_gmt' => ! empty( $status->created_at ) ? date( 'Y-m-d H:i:s', strtotime( $status->created_at ) ) : '', // phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date
 				'meta_input'    => array(),
 			);
+
+			if ( ! empty( $this->options['post_author'] ) ) {
+				$user = get_userdata( $this->options['post_author'] );
+
+				if ( ! empty( $user->ID ) ) {
+					$args['post_author'] = $user->ID;
+				}
+			}
+
+			if ( ! empty( $this->options['post_category'] ) && term_exists( $this->options['post_category'], 'category' ) ) {
+				$args['post_category'] = array( $this->options['post_category'] );
+			}
 
 			// ID (on our instance).
 			$args['meta_input']['_import_from_pixelfed_id'] = $status->id;
@@ -178,22 +187,12 @@ class Import_Handler {
 				$args['post_title'] = $args['meta_input']['_import_from_pixelfed_url'];
 			}
 
+			// Make entire `$args` array filterable.
 			$post_id = wp_insert_post( apply_filters( 'import_from_pixelfed_args', $args, $status ) );
 
 			if ( is_wp_error( $post_id ) || 0 === $post_id ) {
 				// Skip.
 				continue;
-			}
-
-			if ( post_type_supports( $post_type, 'post-formats' ) ) {
-				set_post_format(
-					$post_id,
-					apply_filters(
-						'import_from_pixelfed_post_format',
-						! empty( $this->options['post_format'] ) ? $this->options['post_format'] : 'standard',
-						$status
-					)
-				);
 			}
 
 			if ( ! empty( $status->media_attachments ) ) {
