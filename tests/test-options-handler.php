@@ -15,7 +15,8 @@ class Test_Options_Handler extends \WP_Mock\Tools\TestCase {
 		\WP_Mock::expectActionAdded( 'admin_menu', array( $options_handler, 'create_menu' ) );
 		\WP_Mock::expectActionAdded( 'admin_enqueue_scripts', array( $options_handler, 'enqueue_scripts' ) );
 		\WP_Mock::expectActionAdded( 'admin_post_import_from_pixelfed', array( $options_handler, 'admin_post' ) );
-		\WP_Mock::expectActionAdded( 'import_from_pixelfed_refresh_token', array( $options_handler, 'cron_refresh_token' ) );
+		\WP_Mock::expectActionAdded( 'import_from_pixelfed_refresh_token', array( $options_handler, 'cron_verify_token' ) );
+		\WP_Mock::expectActionAdded( 'import_from_pixelfed_refresh_token', array( $options_handler, 'cron_refresh_token' ), 11 );
 
 		$options_handler->register();
 

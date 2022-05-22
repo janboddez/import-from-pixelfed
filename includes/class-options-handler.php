@@ -20,7 +20,7 @@ class Options_Handler {
 		'pixelfed_client_secret' => '',
 		'pixelfed_access_token'  => '',
 		'pixelfed_refresh_token' => '',
-		'pixelfed_token_expiry'  => '',
+		'pixelfed_token_expiry'  => 0,
 		'post_type'              => 'post',
 		'post_status'            => 'publish',
 		'denylist'               => '',
@@ -63,6 +63,13 @@ class Options_Handler {
 		'pending',
 		'private',
 	);
+
+	/**
+	 * Plugin options.
+	 *
+	 * @var array $options Plugin options.
+	 */
+	private $options = self::DEFAULT_SETTINGS;
 
 	/**
 	 * Constructor.
@@ -137,9 +144,8 @@ class Options_Handler {
 					if ( $pixelfed_host !== $this->options['pixelfed_host'] ) {
 						// Updated URL.
 
-						// (Try to) revoke access. Forget token regardless of
-						// the outcome.
-						//$this->revoke_access();
+						// ~~(Try to) revoke access.~~ Forget token.
+						$this->forget_access_token();
 
 						// Then, save the new URL.
 						$this->options['pixelfed_host'] = untrailingslashit( $pixelfed_host );
@@ -413,7 +419,7 @@ class Options_Handler {
 			$this->options['pixelfed_client_id']     = $app->client_id;
 			$this->options['pixelfed_client_secret'] = $app->client_secret;
 
-			update_option( 'import_from_pixelfed_settings', $this->options );
+			update_option( 'import_from_pixelfed_settings', $this->options, false );
 		} else {
 			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
 		}
@@ -434,13 +440,11 @@ class Options_Handler {
 			}
 		}
 
-		/*
 		if ( isset( $_GET['action'] ) && 'revoke' === $_GET['action'] && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-reset' ) ) {
 			// Revoke access. Forget access token regardless of the
 			// outcome.
-			$this->revoke_access();
+			$this->forget_access_token();
 		}
-		*/
 
 		if ( empty( $this->options['pixelfed_access_token'] ) ) {
 			$url = $this->options['pixelfed_host'] . '/oauth/authorize?' . http_build_query(
@@ -462,28 +466,28 @@ class Options_Handler {
 			<p style="margin-bottom: 2rem;"><?php printf( '<a href="%1$s" class="button">%2$s</a>', esc_url( $url ), esc_html__( 'Authorize Access', 'import-from-pixelfed' ) ); ?>
 			<?php
 		} else {
-			// An access token exists. Show revoke button.			?>
-			<p style="margin-bottom: 2rem;"><?php esc_html_e( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline.', 'import-from-pixelfed' ); ?></p>
-			<!--
-			<p>
+			// An access token exists. Show revoke button.
+			?>
+			<?php /* translators: %s: Pixelfed's application settings URL */ ?>
+			<p><?php printf( esc_html__( 'You&rsquo;ve authorized WordPress to read from your Pixelfed timeline. (Want to revoke WordPress’s access? Head over to %s to do so.)', 'import-from-pixelfed' ), '<a href="' . esc_url_raw( $this->options['pixelfed_host'] . '/settings/applications' ) . '" target="_blank" rel="noopener noreferrer">' . esc_url( $this->options['pixelfed_host'] . '/settings/applications' ) . '</a>' ); ?></p>
+			<p style="margin-bottom: 2rem;">
 				<?php
 				printf(
 					'<a href="%1$s" class="button">%2$s</a>',
 					esc_url(
 						add_query_arg(
 							array(
-								'page'     => 'import-from-pixelfed',
-								'action'   => 'revoke',
-								'_wpnonce' => wp_create_nonce( 'import-from-pixelfed-reset' ),
+								'action'   => 'import_from_pixelfed',
+								'revoke'   => 'true',
+								'_wpnonce' => wp_create_nonce( 'import-from-pixelfed-revoke' ),
 							),
-							admin_url( 'options-general.php' )
+							admin_url( 'admin-post.php' )
 						)
 					),
-					esc_html__( 'Revoke Access', 'import-from-pixelfed' )
+					esc_html__( 'Forget Access Token', 'import-from-pixelfed' )
 				);
 				?>
 			</p>
-			//-->
 			<?php
 		}
 	}
@@ -536,70 +540,10 @@ class Options_Handler {
 			$this->options['pixelfed_token_expiry'] = time() + (int) $token->expires_in;
 		}
 
-		update_option( 'import_from_pixelfed_settings', $this->options );
+		update_option( 'import_from_pixelfed_settings', $this->options, false );
 
 		return true;
 	}
-
-	/**
-	 * Revokes WordPress' access to Pixelfed.
-	 */
-	/*
-	private function revoke_access() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			// Insufficient rights.
-			return;
-		}
-
-		if ( empty( $this->options['pixelfed_host'] ) ) {
-			return;
-		}
-
-		if ( empty( $this->options['pixelfed_access_token'] ) ) {
-			return;
-		}
-
-		if ( empty( $this->options['pixelfed_client_id'] ) ) {
-			return;
-		}
-
-		if ( empty( $this->options['pixelfed_client_secret'] ) ) {
-			return;
-		}
-
-		// Revoke access. This is where Pixelfed differs from Mastodon/OAuth 2.
-		// Also, it doesn't work ...
-		$response = wp_remote_request(
-			// phpcs:ignore Squiz.PHP.CommentedOutCode.Found,Squiz.Commenting.InlineComment.InvalidEndChar
-			// esc_url_raw( $this->options['pixelfed_host'] ) . '/oauth/revoke',
-			esc_url_raw( $this->options['pixelfed_host'] . '/oauth/tokens/' . $this->options['pixelfed_access_token'] ),
-			array(
-				'method'  => 'DELETE',
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $this->options['pixelfed_access_token'],
-				),
-				'timeout' => 11,
-			)
-		);
-
-		if ( is_wp_error( $response ) ) {
-			/* translators: %s: error message *//*
-			error_log( '[Import From Pixelfed] ' . sprintf( __( 'Something went wrong contacting the instance: %s', 'share-on-pixelfed' ), $response->get_error_message() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			return;
-		}
-
-		if ( wp_remote_retrieve_response_code( $response ) >= 300 ) {
-			error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
-		} else {
-			// Success.
-			error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		}
-
-		// Delete access token regardless.
-		$this->options['pixelfed_access_token'] = '';
-		update_option( 'share_on_pixelfed_settings', $this->options );
-	}
-	*/
 
 	/**
 	 * Checks whether the current access token is valid, still.
@@ -633,8 +577,10 @@ class Options_Handler {
 
 		if ( in_array( wp_remote_retrieve_response_code( $response ), array( 401, 403 ), true ) ) {
 			// The current access token has somehow become invalid. Forget it.
-			$this->options['pixelfed_access_token'] = '';
-			update_option( 'import_from_pixelfed_settings', $this->options );
+			unset( $this->options['pixelfed_access_token'] );
+			unset( $this->options['pixelfed_refresh_token'] );
+			unset( $this->options['pixelfed_token_expiry'] );
+			update_option( 'import_from_pixelfed_settings', $this->options, false );
 		}
 	}
 
@@ -703,7 +649,7 @@ class Options_Handler {
 			}
 
 			error_log( '[Import From Pixelfed] Token refresh successful, or token not up for renewal, yet.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			update_option( 'share_on_pixelfed_settings', $this->options );
+			update_option( 'share_on_pixelfed_settings', $this->options, false );
 
 			return true;
 		} else {
@@ -724,6 +670,11 @@ class Options_Handler {
 			$this->reset_options();
 		}
 
+		if ( isset( $_GET['revoke'] ) && 'true' === $_GET['revoke']
+		  && isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'import-from-pixelfed-revoke' ) ) {
+			$this->forget_access_token(); // This does not work ...
+		}
+
 		// Redirect _always_. This why we don't return early.
 		wp_redirect( // phpcs:ignore WordPress.Security.SafeRedirect
 			esc_url_raw(
@@ -739,6 +690,53 @@ class Options_Handler {
 	}
 
 	/**
+	 * Revokes WordPress' access to Pixelfed.
+	 */
+	private function forget_access_token() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			// Insufficient rights.
+			return;
+		}
+
+		// Leaving this here for reference. Just in case: Laravel Passport does
+		// not work like this :-) (and Pixelfed has not implemented
+		// `/oauth/revoke`).
+
+		// phpcs:disable Squiz.PHP.CommentedOutCode.Found,Squiz.Commenting.InlineComment.SpacingBefore,Squiz.Commenting.InlineComment.InvalidEndChar
+		// $response = wp_remote_request(
+		// 	esc_url_raw( $this->options['pixelfed_host'] . '/oauth/tokens/' . $this->options['pixelfed_access_token'] ),
+		// 	array(
+		// 		'method'  => 'DELETE',
+		// 		'headers' => array(
+		// 			'Authorization' => 'Bearer ' . $this->options['pixelfed_access_token'],
+		// 		),
+		// 		'timeout' => 11,
+		// 	)
+		// );
+
+		// if ( is_wp_error( $response ) ) {
+		// 	/* translators: %s: error message *//*
+		// 	error_log( '[Import From Pixelfed] ' . sprintf( __( 'Something went wrong contacting the instance: %s', 'share-on-pixelfed' ), $response->get_error_message() ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		// 	return;
+		// }
+
+		// if ( wp_remote_retrieve_response_code( $response ) >= 300 ) {
+		// 	error_log( print_r( $response, true ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r
+		// } else {
+		// 	// Success.
+		// 	error_log( '[Import From Pixelfed] ' . __( 'Access revoked.', 'share-on-pixelfed' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		// }
+		// phpcs:enable Squiz.PHP.CommentedOutCode.Found,Squiz.Commenting.InlineComment.SpacingBefore,Squiz.Commenting.InlineComment.InvalidEndChar
+
+		// Delete access token. Note: Setting it to an empty string would not
+		// persist.
+		unset( $this->options['pixelfed_access_token'] );
+		unset( $this->options['pixelfed_refresh_token'] );
+		unset( $this->options['pixelfed_token_expiry'] );
+		update_option( 'import_from_pixelfed_settings', $this->options, false );
+	}
+
+	/**
 	 * Resets all plugin options.
 	 */
 	private function reset_options() {
@@ -747,7 +745,7 @@ class Options_Handler {
 		}
 
 		$this->options = self::DEFAULT_SETTINGS;
-		update_option( 'import_from_pixelfed_settings', $this->options );
+		update_option( 'import_from_pixelfed_settings', $this->options, false );
 	}
 
 	/**
